@@ -36,3 +36,10 @@ This is a virtual/demo commerce application. It does not process real payments, 
 
 ## Product images
 This version bundles **600 local product image assets (20 categories × 30 products)** under `images/`. The app loads the matching local asset for each product, so product cards do not depend on an external image host. The visuals are lightweight, catalog-style product renders with the exact product name and product number; this keeps the repository deployable and avoids copyright/licensing issues from copying third-party commercial product photos.
+
+
+## Image and Python 3.13 fixes
+This build uses 600 bundled PNG product images and Streamlit `st.image()` for rendering. It does not depend on external image URLs.
+The Reviews page uses plain dictionaries/labels instead of `sqlite3.Row` objects in `st.selectbox`, avoiding the Python 3.13 `copy.deepcopy` TypeError seen on Streamlit Cloud.
+
+After replacing the repository files, use Streamlit Cloud **Manage app → Reboot app** if the old build remains cached.

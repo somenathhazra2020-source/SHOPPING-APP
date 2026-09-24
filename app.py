@@ -38,29 +38,21 @@ IMAGE_ROOT=Path(__file__).parent / "images"
 
 @lru_cache(maxsize=700)
 def product_image(name, category):
- # Every catalog item has a bundled local product visual, so images do not
- # depend on an external image host and continue working on Streamlit Cloud.
- cat=category or ""
- path=None
- if cat:
-  candidate_dir=IMAGE_ROOT / _slug_image(cat)
-  if candidate_dir.exists():
-   for f in candidate_dir.glob(f"*_{_slug_image(name)}.svg"):
-    path=f; break
- if path is None:
-  # Used by order/cart screens where only the product name is available.
-  for c in CATS:
-   candidate_dir=IMAGE_ROOT / _slug_image(c)
-   if candidate_dir.exists():
-    for f in candidate_dir.glob(f"*_{_slug_image(name)}.svg"):
-     path=f; break
-    if path: break
- if path and path.exists():
-  raw=base64.b64encode(path.read_bytes()).decode("ascii")
-  return "data:image/svg+xml;base64," + raw
- # Final fallback for any future admin-created product.
- q=quote(f"{name} {category} product")
- return f"https://loremflickr.com/700/700/{q}?lock={abs(hash(str(category)+"|"+str(name)))%100000}"
+    # All 600 seeded products have a local PNG image bundled in the repository.
+    # PNG + st.image() is used instead of HTML data-URI images so Streamlit Cloud
+    # renders the product pictures reliably.
+    cat = category or ""
+    candidates = []
+    if cat:
+        candidates.append(IMAGE_ROOT / _slug_image(cat))
+    candidates.extend(IMAGE_ROOT / _slug_image(c) for c in CATS if _slug_image(c) != _slug_image(cat))
+    target = _slug_image(name)
+    for candidate_dir in candidates:
+        if candidate_dir.exists():
+            matches = list(candidate_dir.glob(f"*_{target}.png"))
+            if matches:
+                return str(matches[0])
+    return str(IMAGE_ROOT / "placeholder.png")
 
 def money(x):return f'₹{x:,.2f}'
 
@@ -256,15 +248,22 @@ def smart_answer(uid,text,budget=None):
 
 def product_card(uid,x,i,prefix='shop',compact=False):
     discount=12+(x['id']%36);old=round(x['price']/(1-discount/100),2);seller=seller_for(x['category'])
+    image_path=product_image(x["name"],x["category"])
     if compact:
-        st.markdown(f'<div class="bm-mini-card"><div class="bm-number">#{x["id"]} • {x["category"]}</div><img src="{product_image(x["name"],x["category"])}"><b>{x["name"]}</b><div>⭐ {x["rating"]:.1f} • {money(x["price"])}</div></div>',unsafe_allow_html=True)
-    else:
-        st.markdown(f'''<div class="bm-product"><div class="bm-product-top"><span class="bm-sale">-{discount}%</span><span class="bm-heart">♡</span></div><img src="{product_image(x["name"],x["category"])}"><div class="bm-number">PRODUCT #{x["id"]} • {x["category"].upper()}</div><div class="bm-product-name">{x["name"]}</div><div class="bm-rating">⭐ {x["rating"]:.1f} <span>• {x["sold"]:,} sold</span></div><div><span class="bm-price">{money(x["price"])}</span> <span class="bm-old">{money(old)}</span></div><div class="bm-seller">🏪 {seller} • BharatMart Fulfilled</div><div class="bm-stock">● {x["stock"]} available • +₹{max(5,int(x["price"]*.05))} cashback</div></div>''',unsafe_allow_html=True)
-    b1,b2=st.columns(2)
-    if b1.button('🛒 ADD TO CART',key=f'{prefix}_add_{x["id"]}_{i}',disabled=x['stock']<1,use_container_width=True):
-        add(uid,x['id']);add_reward(uid,2,'Added product to cart');notify(uid,'🛒 Added to cart',f'{x["name"]} is ready in your cart.');st.toast(f'{x["name"]} added to cart')
-    if b2.button('♡ SAVE',key=f'{prefix}_wish_{x["id"]}_{i}',use_container_width=True):
-        c=db();c.execute('INSERT OR IGNORE INTO wishlist(user_id,product_id) VALUES(?,?)',(uid,x['id']));c.commit();c.close();add_reward(uid,1,'Saved to wishlist');st.toast('Saved to wishlist')
+        with st.container(border=True):
+            st.markdown(f'<div class="bm-number">#{x["id"]} • {x["category"]}</div>',unsafe_allow_html=True)
+            st.image(image_path,use_container_width=True)
+            st.markdown(f'<b>{x["name"]}</b><div>⭐ {x["rating"]:.1f} • {money(x["price"])}</div>',unsafe_allow_html=True)
+        return
+    with st.container(border=True):
+        st.markdown(f'<div class="bm-product-top"><span class="bm-sale">-{discount}%</span><span class="bm-heart">♡</span></div>',unsafe_allow_html=True)
+        st.image(image_path,use_container_width=True)
+        st.markdown(f'<div class="bm-number">PRODUCT #{x["id"]} • {x["category"].upper()}</div><div class="bm-product-name">{x["name"]}</div><div class="bm-rating">⭐ {x["rating"]:.1f} <span>• {x["sold"]:,} sold</span></div><div><span class="bm-price">{money(x["price"])}</span> <span class="bm-old">{money(old)}</span></div><div class="bm-seller">🏪 {seller} • BharatMart Fulfilled</div><div class="bm-stock">● {x["stock"]} available • +₹{max(5,int(x["price"]*.05))} cashback</div>',unsafe_allow_html=True)
+        b1,b2=st.columns(2)
+        if b1.button('🛒 ADD TO CART',key=f'{prefix}_add_{x["id"]}_{i}',disabled=x['stock']<1,use_container_width=True):
+            add(uid,x['id']);add_reward(uid,2,'Added product to cart');notify(uid,'🛒 Added to cart',f'{x["name"]} is ready in your cart.');st.toast(f'{x["name"]} added to cart')
+        if b2.button('♡ SAVE',key=f'{prefix}_wish_{x["id"]}_{i}',use_container_width=True):
+            c=db();c.execute('INSERT OR IGNORE INTO wishlist(user_id,product_id) VALUES(?,?)',(uid,x['id']));c.commit();c.close();add_reward(uid,1,'Saved to wishlist');st.toast('Saved to wishlist')
 
 def main():
     st.set_page_config(page_title='BHARATMART MEGA MALL',page_icon='🛒',layout='wide',initial_sidebar_state='expanded')
@@ -446,14 +445,15 @@ div[data-testid="stMetric"]{background:#fff;border:1px solid #e6ebf2;padding:14p
         st.markdown('### Recent reward activity');st.dataframe([dict(x) for x in events],use_container_width=True)
 
     elif page=='Reviews':
-        st.markdown('<div class="bm-section">⭐ Reviews & Ratings</div>',unsafe_allow_html=True);cc=db();products=cc.execute('SELECT * FROM products ORDER BY sold DESC LIMIT 120').fetchall();cc.close();chosen=st.selectbox('Choose a product',products,format_func=lambda z:f'#{z["id"]} • {z["name"]} • {money(z["price"])}',key='review_product');rating=st.slider('Your rating',1,5,5,key='review_rating');review_text=st.text_area('Write your review',max_chars=500,key='review_text')
-        if st.button('⭐ SUBMIT REVIEW',key='submit_review',type='primary'):
+        st.markdown('<div class="bm-section">⭐ Reviews & Ratings</div>',unsafe_allow_html=True);cc=db();products=[dict(r) for r in cc.execute('SELECT * FROM products ORDER BY sold DESC LIMIT 120').fetchall()];cc.close();product_labels=[f'#{p["id"]} • {p["name"]} • {money(p["price"])}' for p in products];chosen_label=st.selectbox('Choose a product',product_labels,key='review_product');chosen=products[product_labels.index(chosen_label)] if products else None;rating=st.slider('Your rating',1,5,5,key='review_rating');review_text=st.text_area('Write your review',max_chars=500,key='review_text')
+        if chosen and st.button('⭐ SUBMIT REVIEW',key='submit_review',type='primary'):
             if not review_text.strip():st.error('Please write a review.')
             else:
                 cc=db();cc.execute('INSERT INTO reviews(user_id,product_id,rating,review,created) VALUES(?,?,?,?,?) ON CONFLICT(user_id,product_id) DO UPDATE SET rating=excluded.rating,review=excluded.review,created=excluded.created',(uid,chosen['id'],rating,review_text.strip(),now()));avg=cc.execute('SELECT AVG(rating) a FROM reviews WHERE product_id=?',(chosen['id'],)).fetchone()['a'];cc.execute('UPDATE products SET rating=? WHERE id=?',(round(avg or 0,1),chosen['id']));cc.commit();cc.close();add_reward(uid,25,'Submitted product review');notify(uid,'⭐ Review reward','You earned 25 reward points for your review.');st.success('Review saved and points added.');st.rerun()
-        cc=db();rv=cc.execute('SELECT r.*,u.name FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.product_id=? ORDER BY r.id DESC LIMIT 30',(chosen['id'],)).fetchall();cc.close();
-        st.markdown(f'### ⭐ {chosen["rating"]:.1f} / 5 • {chosen["name"]}')
-        for i,r in enumerate(rv):st.markdown(f'<div class="bm-benefit"><b>👤 {r["name"]}</b> • ⭐ {r["rating"]}/5<br>{r["review"]}<br><span class="bm-small">{fmt_ist(r["created"])}</span></div>',unsafe_allow_html=True)
+        if chosen:
+            cc=db();rv=cc.execute('SELECT r.*,u.name FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.product_id=? ORDER BY r.id DESC LIMIT 30',(chosen['id'],)).fetchall();cc.close();
+            st.markdown(f'### ⭐ {chosen["rating"]:.1f} / 5 • {chosen["name"]}')
+            for i,r in enumerate(rv):st.markdown(f'<div class="bm-benefit"><b>👤 {r["name"]}</b> • ⭐ {r["rating"]}/5<br>{r["review"]}<br><span class="bm-small">{fmt_ist(r["created"])}</span></div>',unsafe_allow_html=True)
 
     elif page=='Profile':
         st.markdown('<div class="bm-section">👤 My BharatMart Profile</div>',unsafe_allow_html=True);a,b,c3=st.columns(3);a.metric('Name',u['name']);b.metric('VIP','ACTIVE' if u['vip'] else 'STANDARD');c3.metric('Rewards',f'{u["rewards"]:,}')
